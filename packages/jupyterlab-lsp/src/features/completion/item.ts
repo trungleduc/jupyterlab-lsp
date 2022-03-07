@@ -69,7 +69,7 @@ export class LazyCompletionItem implements IExtendedCompletionItem {
     /**
      * LabIcon object for icon to be rendered with completion type.
      */
-    public icon: LabIcon,
+    public icon: LabIcon | any,
     private match: lsProtocol.CompletionItem,
     private connector: LSPConnector,
     private uri: string
@@ -146,7 +146,7 @@ export class LazyCompletionItem implements IExtendedCompletionItem {
   /**
    * Resolve (fetch) details such as documentation.
    */
-  public resolve(): Promise<lsProtocol.CompletionItem> {
+  public lspResolve(): Promise<lsProtocol.CompletionItem> {
     if (this._resolved) {
       return Promise.resolve(this);
     }

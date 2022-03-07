@@ -1,17 +1,11 @@
 import { CodeEditor } from '@jupyterlab/codeeditor';
-import {
-  CompletionConnector,
-  CompletionHandler,
-  ContextConnector,
-  KernelConnector
-} from '@jupyterlab/completer';
+import { CompletionHandler } from '@jupyterlab/completer';
 import { Session } from '@jupyterlab/services';
 import { LabIcon } from '@jupyterlab/ui-components';
 import {
   ILSPCompletionThemeManager,
   KernelKind
 } from '@krassowski/completion-theme/lib/types';
-import { JSONArray, JSONObject } from '@lumino/coreutils';
 import * as lsProtocol from 'vscode-languageserver-types';
 
 import { CodeCompletion as LSPCompletionSettings } from '../../_completion';
@@ -62,9 +56,6 @@ export class LSPConnector
   isDisposed = false;
   private _editor: CodeEditor.IEditor;
   private _connections: Map<VirtualDocument.uri, LSPConnection>;
-  private _context_connector: ContextConnector;
-  private _kernel_connector: KernelConnector;
-  private _kernel_and_context_connector: CompletionConnector;
   private console: ILSPLogConsole;
 
   // signal that this is the new type connector (providing completion items)
@@ -115,14 +106,7 @@ export class LSPConnector
     this._editor = options.editor;
     this._connections = options.connections;
     this.virtual_editor = options.virtual_editor;
-    this._context_connector = new ContextConnector({ editor: options.editor });
-    if (options.session) {
-      let kernel_options = { editor: options.editor, session: options.session };
-      this._kernel_connector = new KernelConnector(kernel_options);
-      this._kernel_and_context_connector = new CompletionConnector(
-        kernel_options
-      );
-    }
+
     this.lab_integration = options.labIntegration;
     this.console = options.console;
   }
@@ -133,9 +117,6 @@ export class LSPConnector
     }
     this._connections = null as any;
     this.virtual_editor = null as any;
-    this._context_connector = null as any;
-    this._kernel_connector = null as any;
-    this._kernel_and_context_connector = null as any;
     this.options = null as any;
     this._editor = null as any;
     this.isDisposed = true;
@@ -162,9 +143,7 @@ export class LSPConnector
   }
 
   get fallback_connector() {
-    return this._kernel_and_context_connector
-      ? this._kernel_and_context_connector
-      : this._context_connector;
+    return null;
   }
 
   protected transform_from_editor_to_root(
@@ -256,7 +235,6 @@ export class LSPConnector
 
       if (
         this.use_kernel_completions &&
-        this._kernel_connector &&
         this._has_kernel &&
         (this._is_kernel_idle || this._should_wait_for_busy_kernel) &&
         kernelTimeout != 0
@@ -272,40 +250,16 @@ export class LSPConnector
         if (
           document.language.toLocaleLowerCase() === kernelLanguage.toLowerCase()
         ) {
-          let default_kernel_promise = this._kernel_connector.fetch(request);
-          let kernel_promise: Promise<CompletionHandler.IReply>;
-
           if (kernelTimeout == -1) {
-            kernel_promise = default_kernel_promise;
+            /** */
           } else {
             // implement timeout for the kernel response using Promise.race:
             // an empty completion result will resolve after the timeout
             // if actual kernel response does not beat it to it
-            kernel_promise = Promise.race([
-              default_kernel_promise,
-              new Promise<CompletionHandler.IReply>(resolve => {
-                return setTimeout(
-                  () =>
-                    resolve({
-                      start: 0,
-                      end: 0,
-                      matches: [],
-                      metadata: {}
-                    }),
-                  kernelTimeout
-                );
-              })
-            ]);
           }
 
-          promise = Promise.all([
-            kernel_promise.catch(p => p),
-            lsp_promise.catch(p => p)
-          ]).then(([kernel, lsp]) => {
+          promise = Promise.all([lsp_promise.catch(p => p)]).then(([lsp]) => {
             let replies = [];
-            if (kernel != null) {
-              replies.push(this.transform_reply(kernel));
-            }
             if (lsp != null) {
               replies.push(lsp);
             }
@@ -314,22 +268,14 @@ export class LSPConnector
         }
       }
       if (!promise) {
-        promise = lsp_promise.catch(e => {
-          this.console.warn('hint failed', e);
-          return this.fallback_connector
-            .fetch(request)
-            .then(this.transform_reply);
-        });
+        /** */
       }
     } catch (e) {
       this.console.warn('kernel completions failed', e);
-      promise = this.fallback_connector
-        .fetch(request)
-        .then(this.transform_reply);
     }
 
     this.console.debug('All promises set up and ready.');
-    return promise.then(reply => {
+    return promise?.then(reply => {
       reply = this.suppress_if_needed(reply, token, cursor);
       if (reply) {
         this.items = reply.items;
@@ -428,7 +374,7 @@ export class LSPConnector
         document.uri
       );
 
-      items.push(completionItem);
+      items.push(completionItem as any);
     });
     this.console.debug('Transformed');
     // required to make the repetitive trigger characters like :: or ::: work for R with R languageserver,
@@ -476,42 +422,42 @@ export class LSPConnector
     return (this.options.themeManager.get_icon(type) as LabIcon) || undefined;
   }
 
-  private transform_reply(reply: CompletionHandler.IReply): ICompletionsReply {
-    this.console.log('Transforming kernel reply:', reply);
-    let items: IExtendedCompletionItem[];
-    const metadata = reply.metadata || {};
-    const types = metadata._jupyter_types_experimental as JSONArray;
+  // private transform_reply(reply: CompletionHandler.IReply): ICompletionsReply {
+  //   this.console.log('Transforming kernel reply:', reply);
+  //   let items: IExtendedCompletionItem[];
+  //   const metadata = reply.metadata || {};
+  //   const types = metadata._jupyter_types_experimental as JSONArray;
 
-    if (types) {
-      items = types.map((item: JSONObject) => {
-        return {
-          label: item.text as string,
-          insertText: item.text as string,
-          type: item.type === '<unknown>' ? undefined : (item.type as string),
-          icon: this.icon_for(item.type as string),
-          sortText: this.kernel_completions_first ? 'a' : 'z'
-        };
-      });
-    } else {
-      items = reply.matches.map(match => {
-        return {
-          label: match,
-          insertText: match,
-          sortText: this.kernel_completions_first ? 'a' : 'z'
-        };
-      });
-    }
-    return {
-      start: reply.start,
-      end: reply.end,
-      source: {
-        name: 'Kernel',
-        priority: 1,
-        fallbackIcon: this.icon_for('Kernel')
-      },
-      items
-    };
-  }
+  //   if (types) {
+  //     items = types.map((item: JSONObject) => {
+  //       return {
+  //         label: item.text as string,
+  //         insertText: item.text as string,
+  //         type: item.type === '<unknown>' ? undefined : (item.type as string),
+  //         icon: this.icon_for(item.type as string),
+  //         sortText: this.kernel_completions_first ? 'a' : 'z'
+  //       };
+  //     });
+  //   } else {
+  //     items = reply.matches.map(match => {
+  //       return {
+  //         label: match,
+  //         insertText: match,
+  //         sortText: this.kernel_completions_first ? 'a' : 'z'
+  //       };
+  //     });
+  //   }
+  //   return {
+  //     start: reply.start,
+  //     end: reply.end,
+  //     source: {
+  //       name: 'Kernel',
+  //       priority: 1,
+  //       fallbackIcon: this.icon_for('Kernel')
+  //     },
+  //     items
+  //   };
+  // }
 
   protected merge_replies(
     replies: ICompletionsReply[],
@@ -597,7 +543,7 @@ export class LSPConnector
         if (reply.source) {
           processedItem.source = reply.source;
           if (!processedItem.icon) {
-            processedItem.icon = reply.source.fallbackIcon;
+            processedItem.icon = reply.source.fallbackIcon as any;
           }
         }
         processedItems.push(processedItem);
