@@ -106,6 +106,23 @@ export class LspCompletionProvider implements ICompletionProvider {
     });
   }
 
+  async resolve(
+    completionItem: LazyCompletionItem,
+    context: ICompletionContext,
+    patch?: Completer.IPatch | null
+  ): Promise<LazyCompletionItem> {
+    const resolvedCompletionItem = await completionItem.lspResolve();
+    console.log(
+      'completionItem',
+      resolvedCompletionItem.label,
+      resolvedCompletionItem.documentation
+    );
+
+    return {
+      ...completionItem,
+      documentation: resolvedCompletionItem.documentation
+    } as any;
+  }
   transform_from_editor_to_root(
     editor: CodeEditor.IEditor,
     position: CodeEditor.IPosition
@@ -369,7 +386,7 @@ export class LspCompletionProvider implements ICompletionProvider {
     }
     return (this.themeManager.get_icon(type) as LabIcon) || undefined;
   }
-  public should_show_documentation = false;
+  public should_show_documentation = true;
   identifier = 'LspCompletionProvider';
   renderer:
     | Completer.IRenderer<CompletionHandler.ICompletionItem>
