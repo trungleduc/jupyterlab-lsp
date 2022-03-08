@@ -5,6 +5,7 @@ import * as lsProtocol from 'vscode-languageserver-types';
 import { until_ready } from '../../utils';
 
 import { LSPConnector } from './completion_handler';
+import { LspCompletionProvider } from './provider';
 
 /**
  * To be upstreamed
@@ -71,7 +72,7 @@ export class LazyCompletionItem implements IExtendedCompletionItem {
      */
     public icon: LabIcon | any,
     private match: lsProtocol.CompletionItem,
-    private connector: LSPConnector,
+    private connector: LspCompletionProvider | LSPConnector,
     private uri: string
   ) {
     this.label = match.label;

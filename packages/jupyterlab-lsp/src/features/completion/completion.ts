@@ -1,5 +1,6 @@
 import { JupyterFrontEnd } from '@jupyterlab/application';
 import { CodeEditor } from '@jupyterlab/codeeditor';
+import { ICompletionProviderManager } from '@jupyterlab/completer';
 import { IDocumentWidget } from '@jupyterlab/docregistry';
 import { NotebookPanel } from '@jupyterlab/notebook';
 import { IRenderMimeRegistry } from '@jupyterlab/rendermime';
@@ -15,6 +16,7 @@ import { ILSPAdapterManager, ILSPLogConsole } from '../../tokens';
 
 import { LSPConnector } from './completion_handler';
 import { LazyCompletionItem } from './item';
+import { LspCompletionProvider } from './provider';
 import { ICompletionData, LSPCompletionRenderer } from './renderer';
 
 export class CompletionCM extends CodeMirrorIntegration {
@@ -63,16 +65,17 @@ export class CompletionLabIntegration implements IFeatureLabIntegration {
   protected current_adapter: WidgetAdapter<IDocumentWidget> | null = null;
   protected renderer: LSPCompletionRenderer;
   private _latestActiveItem: LazyCompletionItem | null = null;
-
+  private _provider: LspCompletionProvider
   constructor(
     private app: JupyterFrontEnd,
     public settings: FeatureSettings<LSPCompletionSettings>,
     private adapterManager: ILSPAdapterManager,
     private completionThemeManager: ILSPCompletionThemeManager,
     private console: ILSPLogConsole,
-    private renderMimeRegistry: IRenderMimeRegistry
+    private renderMimeRegistry: IRenderMimeRegistry,
+    private providerManager : ICompletionProviderManager
   ) {
-    console.log(this.app, this.adapterManager);
+    console.log(this.app, this.adapterManager, this.providerManager);
     const markdown_renderer =
       this.renderMimeRegistry.createRenderer('text/markdown');
     this.renderer = new LSPCompletionRenderer({
@@ -101,6 +104,13 @@ export class CompletionLabIntegration implements IFeatureLabIntegration {
           this.settings.composite.layout;
       }
     });
+    this._provider = new LspCompletionProvider({
+      renderer: this.renderer,
+      virtual_editor: this.current_adapter?.virtual_editor,
+      connections: this.current_adapter?.connection_manager.connections,
+      themeManager: this.completionThemeManager,
+    })
+    this.providerManager.registerProvider(this._provider)
   }
 
   protected fetchDocumentation(item: LazyCompletionItem): void {
@@ -202,6 +212,7 @@ export class CompletionLabIntegration implements IFeatureLabIntegration {
     if (editor == null) {
       return;
     }
+    this._provider.update({virtual_editor: this.current_adapter!.virtual_editor, connections: this.current_adapter!.connection_manager.connections})
     this.set_completion_connector(adapter, editor);
   }
 
